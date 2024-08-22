@@ -1,0 +1,59 @@
+import unittest
+from unittest.mock import patch, Mock
+from datetime import datetime, timedelta
+import json
+import os
+from v2x_server import ParkingNode, load_parking_spots
+
+class TestParkingNodeIntegration(unittest.TestCase):
+    def setUp(self):
+        self.folder_path = 'path/to/data/folder'
+        self.map_filename = 'ap_image.png'
+        self.json_filename = 'parking_spots.json'
+        self.parking_node = ParkingNode(self.folder_path, self.map_filename, self.json_filename)
+
+    @patch('v2x_server.ParkingNode.publish_payment_info')
+    @patch('v2x_server.ParkingNode.update_gui')
+    def test_parking_node_integration(self, mock_update_gui, mock_publish_payment_info):
+        # Test Step 1: Simulate vehicle entry and departure
+        entry_timestamp = datetime.now()
+        departure_timestamp = entry_timestamp + timedelta(minutes=30)
+
+        # Simulate rigidbody message with vehicle entry
+        rigidbody_msg = Mock()
+        rigidbody_msg.rigidbodies = [Mock(rigid_body_name='vehicle1', pose=Mock(position=Mock(x=1, y=2, z=3)))]
+        self.parking_node.rigidbody_callback(rigidbody_msg)
+
+        # Simulate rigidbody message with vehicle departure
+        rigidbody_msg.rigidbodies = [Mock(rigid_body_name='vehicle1', pose=Mock(position=Mock(x=1, y=2, z=3)))]
+        self.parking_node.rigidbody_callback(rigidbody_msg)
+
+        # Verify parking duration and cost calculation
+        parking_spot = self.parking_node.parking_spots[0]
+        self.assertEqual(parking_spot['start_time'], entry_timestamp)
+        self.assertEqual(parking_spot['occupied_by'], 'ehicle1')
+        self.assertAlmostEqual(parking_spot['duration'], 30, delta=1)
+
+        # Verify payment info publication
+        mock_publish_payment_info.assert_called_once_with(
+            parking_spot['id'], parking_spot['duration'], '€5.00', False, parking_spot['id']
+        )
+
+        # Test Step 2: Verify GUI update
+        mock_update_gui.assert_called_once()
+
+        # Verify parking spot status update
+        self.assertEqual(self.parking_node.parking_spots_status[parking_spot['id']], False)
+
+    def test_load_parking_spots(self):
+        parking_spots = load_parking_spots(self.folder_path, self.json_filename)
+        self.assertEqual(len(parking_spots), 4)
+        self.assertEqual(parking_spots[0]['id'], 1)
+        self.assertEqual(parking_spots[0]['x_coordinate'], 415)
+        self.assertEqual(parking_spots[0]['y_coordinate'], 445)
+
+if __name__ == '__main__':
+    unittest.main()
+   
+
+  
